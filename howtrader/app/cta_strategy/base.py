@@ -21,7 +21,9 @@ class StopOrderStatus(Enum):
 
 
 class EngineType(Enum):
+    # 枚举成员通常用于表示一组有限地可能状态或选项，这里的 LIVE 可以表示引擎类型为实盘交易。
     LIVE = "LIVE"
+    # 这行代码定义了另一个枚举成员 BACKTESTING，它的值被设置为字符串 "BACKTESTING"。这个枚举成员可以表示引擎类型为回测。
     BACKTESTING = "BACKTESTING"
 
 

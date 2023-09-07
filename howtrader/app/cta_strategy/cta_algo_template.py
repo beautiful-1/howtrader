@@ -9,6 +9,7 @@ from howtrader.trader.utility import virtual
 from .base import StopOrder, EngineType
 from decimal import Decimal
 
+
 class CtaTemplate(ABC):
     """"""
 
@@ -17,11 +18,11 @@ class CtaTemplate(ABC):
     variables: list = []
 
     def __init__(
-        self,
-        cta_engine: Any,
-        strategy_name: str,
-        vt_symbol: str,
-        setting: dict,
+            self,
+            cta_engine: Any,
+            strategy_name: str,
+            vt_symbol: str,
+            setting: dict,
     ) -> None:
         """"""
         self.cta_engine: "CtaEngine" = cta_engine
@@ -41,12 +42,19 @@ class CtaTemplate(ABC):
 
         self.update_setting(setting)
 
+    """
+    综上所述，这段代码的作用是根据传入的 setting 字典中的内容，更新策略对象的参数值。
+    这个方法会遍历策略对象的参数列表，检查每个参数是否在 setting 字典中存在，如果存在就更新该参数的值。
+    这样，你可以通过传递一个包含新参数值的字典来动态地更新策略的参数配置。
+    """
+
     def update_setting(self, setting: dict) -> None:
         """
-        Update strategy parameter wtih value in setting dict.
+        Update strategy parameter with value in setting dict.
         """
         for name in self.parameters:
             if name in setting:
+                # setattr 是 Python 内置函数，用于设置对象的属性
                 setattr(self, name, setting[name])
 
     @classmethod
@@ -148,13 +156,13 @@ class CtaTemplate(ABC):
         pass
 
     def buy(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send buy order to open a long position.
@@ -171,13 +179,13 @@ class CtaTemplate(ABC):
         )
 
     def sell(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send sell order to close a long position.
@@ -194,13 +202,13 @@ class CtaTemplate(ABC):
         )
 
     def short(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send short order to open as short position.
@@ -217,13 +225,13 @@ class CtaTemplate(ABC):
         )
 
     def cover(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send cover order to close a short position.
@@ -240,15 +248,15 @@ class CtaTemplate(ABC):
         )
 
     def send_order(
-        self,
-        direction: Direction,
-        offset: Offset,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            direction: Direction,
+            offset: Offset,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send a new order.
@@ -304,11 +312,11 @@ class CtaTemplate(ABC):
         return self.cta_engine.get_position(vt_positionid)
 
     def load_bar(
-        self,
-        days: int,
-        interval: Interval = Interval.MINUTE,
-        callback: Callable = None,
-        use_database: bool = False
+            self,
+            days: int,
+            interval: Interval = Interval.MINUTE,
+            callback: Callable = None,
+            use_database: bool = False
     ) -> None:
         """
         Load historical bar data for initializing strategy.
@@ -401,7 +409,7 @@ class TargetPosTemplate(CtaTemplate):
 
     last_tick: TickData = None
     last_bar: BarData = None
-    target_pos:Decimal = Decimal("0")
+    target_pos: Decimal = Decimal("0")
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting) -> None:
         """"""

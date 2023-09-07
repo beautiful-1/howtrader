@@ -15,11 +15,12 @@ from plotly.subplots import make_subplots
 from deap import creator, base, tools, algorithms
 
 from howtrader.trader.constant import (Direction, Offset, Exchange,
-                                  Interval, Status)
+                                       Interval, Status)
 from howtrader.trader.database import get_database, BaseDatabase
 from howtrader.trader.object import OrderData, TradeData, BarData, TickData
 from howtrader.trader.utility import round_to
 from decimal import Decimal
+from howtrader.event import Event, EventEngine
 
 database: BaseDatabase = get_database()
 
@@ -32,7 +33,6 @@ from .base import (
     INTERVAL_DELTA_MAP
 )
 from .template import CtaTemplate
-
 
 # Set deap algo
 creator.create("FitnessMax", base.Fitness, weights=(1.0,))
@@ -50,7 +50,7 @@ class OptimizationSetting:
         self.target_name = ""
 
     def add_parameter(
-        self, name: str, start: float, end: float = None, step: float = None
+            self, name: str, start: float, end: float = None, step: float = None
     ):
         """"""
         if not end and not step:
@@ -107,48 +107,73 @@ class BacktestingEngine:
     engine_type: EngineType = EngineType.BACKTESTING
     gateway_name: str = "BACKTESTING"
 
-    def __init__(self) -> None:
+    def __init__(self, event_engine: EventEngine = None) -> None:
         """"""
         self.vt_symbol: str = ""
         self.symbol: str = ""
+        # 交易所信息
         self.exchange: Exchange = None
+        # 开始时间
         self.start: datetime = None
+        # 结束时间
         self.end: datetime = None
+        # 费率
         self.rate: float = 0
+        # 滑点
         self.slippage: float = 0
+        # 没收合约的数量
         self.size: float = 1
+        # 代表最小价格变动
         self.pricetick: float = 0
+        # 初始资本
         self.capital: float = 1_000_000
+        # 回测模式，是基于k线还是tick
         self.mode: BacktestingMode = BacktestingMode.BAR
+        # 一年的交易天数
         self.annual_days: int = 365
+        # 代表是否是反向策略
         self.inverse: bool = False
-
+        # 使用的策略类
         self.strategy_class: Type[CtaTemplate] = None
+        # 策略实例
         self.strategy: CtaTemplate = None
+        # tick数据
         self.tick: TickData
+        # k线数据
         self.bar: BarData
+        # 当前时间
         self.datetime: datetime = None
-
+        # K线周期
         self.interval: Interval = None
+        # 回测天数
         self.days: int = 0
+        # 回调函数
         self.callback: Callable = None
+        # 历史数据
         self.history_data: list = []
-
+        # 止损单数量
         self.stop_order_count: int = 0
+        # 代表止损单字典，记录止损单的信息。
         self.stop_orders: Dict[str, StopOrder] = {}
+        # 当前活跃的止损单
         self.active_stop_orders: Dict[str, StopOrder] = {}
-
+        # 限价单数量
         self.limit_order_count: int = 0
+        # 限价单字典
         self.limit_orders: Dict[str, OrderData] = {}
+        # 活跃限价单字典
         self.active_limit_orders: Dict[str, OrderData] = {}
-
+        # 交易数量
         self.trade_count: int = 0
+        # 交易记录的字典
         self.trades: Dict[str, TradeData] = {}
 
         self.logs: list = []
-
+        # 每日回测结果字典。
         self.daily_results: Dict[date, DailyResult] = {}
+        # 每日回测结果的DataFrame。
         self.daily_df: DataFrame = None
+        self.event_engine: EventEngine = event_engine
 
     def clear_data(self) -> None:
         """
@@ -174,19 +199,19 @@ class BacktestingEngine:
         self.daily_results.clear()
 
     def set_parameters(
-        self,
-        vt_symbol: str,
-        interval: Interval,
-        start: datetime,
-        rate: float,
-        slippage: float,
-        size: float,
-        pricetick: float,
-        capital: int = 0,
-        end: datetime = None,
-        mode: BacktestingMode = BacktestingMode.BAR,
-        inverse: bool = False,
-        annual_days: int = 365
+            self,
+            vt_symbol: str,
+            interval: Interval,
+            start: datetime,
+            rate: float,
+            slippage: float,
+            size: float,
+            pricetick: float,
+            capital: int = 0,
+            end: datetime = None,
+            mode: BacktestingMode = BacktestingMode.BAR,
+            inverse: bool = False,
+            annual_days: int = 365
     ):
         """"""
         self.mode = mode
@@ -207,6 +232,7 @@ class BacktestingEngine:
         self.inverse = inverse
         self.annual_days = annual_days
 
+    # Type[CtaTemplate] 表示这个参数应该是一个 CtaTemplate 类或其子类的类型。
     def add_strategy(self, strategy_class: Type[CtaTemplate], setting: dict) -> None:
         """"""
         self.strategy_class = strategy_class
@@ -225,7 +251,7 @@ class BacktestingEngine:
             self.output("start date should be less than end date")
             return
 
-        self.history_data.clear()       # Clear previously loaded history data
+        self.history_data.clear()  # Clear previously loaded history data
 
         # Load 30 days of data each time and allow for progress update
         progress_delta = timedelta(days=30)
@@ -317,28 +343,39 @@ class BacktestingEngine:
     def calculate_result(self):
         """"""
         self.output("start calculating pnl")
-
+        # 检查是否存在交易订单
         if not self.trades:
             self.output("there is no trades，can't calculate")
             return
 
-        # Add trade data into daily reuslt.
+        # Add trade data into daily reuslt
+        # 遍历所有交易记录.
         for trade in self.trades.values():
+            # 获取日期
             d: date = trade.datetime.date()
+            # self.daily_results[d]是一个字典，获取到字典以后，将这个交易添加当日的交易结果中
             daily_result: DailyResult = self.daily_results[d]
             daily_result.add_trade(trade)
 
         # Calculate daily result by iteration.
+        # 初始化前一日的收盘价。
         pre_close = 0
+        # 初始化起始仓位。
         start_pos = 0
-
+        # 遍历每日结果
         for daily_result in self.daily_results.values():
             daily_result.calculate_pnl(
+                # 前一日的收盘价
                 pre_close,
+                # 起始仓位
                 start_pos,
+                # 合约大小
                 self.size,
+                # 手续费率
                 self.rate,
+                # 滑点
                 self.slippage,
+                # 是否反向持仓
                 self.inverse
             )
 
@@ -346,12 +383,21 @@ class BacktestingEngine:
             start_pos = daily_result.end_pos
 
         # Generate dataframe
+        # defaultdict 是 Python 中的一个数据结构，它可以在创建字典时指定默认值的类型
         results = defaultdict(list)
-
+        # 再次遍历每日结果。
         for daily_result in self.daily_results.values():
             for key, value in daily_result.__dict__.items():
+                # 将每日结果对象的属性名作为键，属性值作为值，添加到results字典中。
                 results[key].append(value)
 
+        # from_dict 函数允许你从一个字典创建一个 DataFrame
+
+        # .set_index("date"): 这一部分是对 DataFrame 的进一步操作。
+        # set_index 方法用于将 DataFrame 的一列设置为索引列，这里的参数是 "date"，意味着将 DataFrame 中名为 "date" 的列设置为索引。
+        # 索引是 DataFrame 中用于标识和访问行的标签。
+
+        # 可以通过使用，self.daily_df.loc["2023-08-14"] 将返回 "2023-08-14" 这一行的数据。
         self.daily_df = DataFrame.from_dict(results).set_index("date")
 
         self.output("finish calculating pnl ")
@@ -456,35 +502,35 @@ class BacktestingEngine:
             self.output(f"start date：\t{start_date}")
             self.output(f"end date：\t{end_date}")
 
-            self.output(f"total days：\t{total_days}")
-            self.output(f"profit days：\t{profit_days}")
-            self.output(f"loss days：\t{loss_days}")
+            self.output(f"total days【总回测天数】：\t{total_days}")
+            self.output(f"profit days【盈利的交易日数】：\t{profit_days}")
+            self.output(f"loss days【亏损的交易日数】：\t{loss_days}")
 
-            self.output(f"capital：\t{self.capital:,.2f}")
-            self.output(f"end balance：\t{end_balance:,.2f}")
+            self.output(f"capital【初始资本】：\t{self.capital:,.2f}")
+            self.output(f"end balance【回测结束时的资本余额】：\t{end_balance:,.2f}")
 
-            self.output(f"total return：\t{total_return:,.2f}%")
-            self.output(f"annual return：\t{annual_return:,.2f}%")
-            self.output(f"max drawdown: \t{max_drawdown:,.2f}")
-            self.output(f"max drawdown percent: \t{max_ddpercent:,.2f}%")
-            self.output(f"max drawdown duration: \t{max_drawdown_duration}")
+            self.output(f"total return【总回报率】：\t{total_return:,.2f}%")
+            self.output(f"annual return【年化回报率】：\t{annual_return:,.2f}%")
+            self.output(f"max drawdown【最大回撤金额】: \t{max_drawdown:,.2f}")
+            self.output(f"max drawdown percent【最大回撤百分比】: \t{max_ddpercent:,.2f}%")
+            self.output(f"max drawdown duration【最大回撤持续的天数】: \t{max_drawdown_duration}")
 
-            self.output(f"total net pnl：\t{total_net_pnl:,.2f}")
-            self.output(f"total commission：\t{total_commission:,.2f}")
-            self.output(f"total slippage：\t{total_slippage:,.2f}")
-            self.output(f"total turnover：\t{total_turnover:,.2f}")
-            self.output(f"total trade count：\t{total_trade_count}")
+            self.output(f"total net pnl【总净利润】：\t{total_net_pnl:,.2f}")
+            self.output(f"total commission【总手续费】：\t{total_commission:,.2f}")
+            self.output(f"total slippage【总滑点成本】：\t{total_slippage:,.2f}")
+            self.output(f"total turnover【总成交额】：\t{total_turnover:,.2f}")
+            self.output(f"total trade count【总交易次数】：\t{total_trade_count}")
 
-            self.output(f"daily net pnl：\t{daily_net_pnl:,.2f}")
-            self.output(f"daily commission：\t{daily_commission:,.2f}")
-            self.output(f"daily slippage：\t{daily_slippage:,.2f}")
-            self.output(f"daily turnover：\t{daily_turnover:,.2f}")
-            self.output(f"daily trade count：\t{daily_trade_count}")
+            self.output(f"daily net pnl【每日净利润的平均值】：\t{daily_net_pnl:,.2f}")
+            self.output(f"daily commission【每日手续费的平均值】：\t{daily_commission:,.2f}")
+            self.output(f"daily slippage【每日滑点成本的平均值】：\t{daily_slippage:,.2f}")
+            self.output(f"daily turnover【每日成交额的平均值】：\t{daily_turnover:,.2f}")
+            self.output(f"daily trade count【每日平均交易次数】：\t{daily_trade_count}")
 
-            self.output(f"daily return：\t{daily_return:,.2f}%")
-            self.output(f"return std：\t{return_std:,.2f}%")
-            self.output(f"Sharpe Ratio：\t{sharpe_ratio:,.2f}")
-            self.output(f"return drawdown ratio：\t{return_drawdown_ratio:,.2f}")
+            self.output(f"daily return【每日平均回报率】：\t{daily_return:,.2f}%")
+            self.output(f"return std【回报率的标准差，用于衡量波动性】：\t{return_std:,.2f}%")
+            self.output(f"Sharpe Ratio【夏普比率，用于衡量每单位风险所获得的超额回报】：\t{sharpe_ratio:,.2f}")
+            self.output(f"return drawdown ratio【回报率与回撤比率】：\t{return_drawdown_ratio:,.2f}")
 
         statistics = {
             "start_date": start_date,
@@ -516,6 +562,7 @@ class BacktestingEngine:
         }
 
         # Filter potential error infinite value
+        # items() 方法返回一个包含字典中所有键值对的可迭代对象。
         for key, value in statistics.items():
             if value in (np.inf, -np.inf):
                 value = 0
@@ -524,23 +571,50 @@ class BacktestingEngine:
         self.output("finish calculating strategy's performance")
         return statistics
 
+    def print_trades(self, trades: Dict[str, TradeData]):
+        df = DataFrame(columns=['gateway_name', 'symbol', 'exchange', 'orderid', 'tradeid',
+                                'direction', 'offset', 'price', 'volume', 'datetime'])
+
+        # 遍历数据字典，将每个TradeData对象的属性提取出来，添加为一行数据
+        for key, trade_data in trades.items():
+            df.loc[key] = [trade_data.gateway_name, trade_data.symbol, trade_data.exchange,
+                           trade_data.orderid, trade_data.tradeid, trade_data.direction,
+                           trade_data.offset, float(trade_data.price), float(trade_data.volume),
+                           trade_data.datetime]
+
+        # 输出DataFrame
+        return df
+
     def show_chart(self, df: DataFrame = None):
         """"""
         # Check DataFrame input exterior
         if df is None:
             df = self.daily_df
 
+        table_df = self.print_trades(self.trades)
         # Check for init DataFrame
         if df is None:
             return
-
+        # 创建一个子图对象 fig，该对象包含了四个子图，分别用于绘制余额曲线、回撤曲线、每日盈亏柱状图和盈亏分布直方图。
+        # make_subplots 函数允许在同一个图表中绘制多个子图。
         fig = make_subplots(
+            # 创建了一个四行一列的子图布局
             rows=4,
             cols=1,
-            subplot_titles=["Balance", "Drawdown", "Daily Pnl", "Pnl Distribution"],
+            # 设置了每个子图的标题。
+            subplot_titles=["Balance", "Drawdown", "Daily Pnl", "Pnl Distribution", "Table-Trades"],
+            # 设置了子图之间的垂直间距。
             vertical_spacing=0.06
         )
 
+        # 创建子图布局，用于显示表格
+        fig2 = make_subplots(
+            rows=1, cols=1,
+        )
+
+        # 接下来，分别创建了四个图表的数据和样式：
+        # go 是 Plotly Python 库中的一个子模块，它包含了用于创建各种图表类型的函数。
+        # go.Scatter 函数用于创建散点图，并且可以用于绘制折线图。它允许你指定横轴和纵轴的数据，以及图表的样式。
         balance_line = go.Scatter(
             x=df.index,
             y=df["balance"],
@@ -557,14 +631,24 @@ class BacktestingEngine:
         )
         pnl_bar = go.Bar(y=df["net_pnl"], name="Daily Pnl")
         pnl_histogram = go.Histogram(x=df["net_pnl"], nbinsx=100, name="Days")
-
+        table_tredes = go.Table(
+            header=dict(values=list(table_df.columns)),
+            cells=dict(
+                values=[table_df.gateway_name, table_df.symbol, table_df.exchange, table_df.orderid, table_df.tradeid,
+                        table_df.direction, table_df.offset, table_df.price, table_df.volume, table_df.datetime])
+        )
+        # 方法将上述图表添加到子图中，并指定子图的行列位置。
         fig.add_trace(balance_line, row=1, col=1)
         fig.add_trace(drawdown_scatter, row=2, col=1)
         fig.add_trace(pnl_bar, row=3, col=1)
         fig.add_trace(pnl_histogram, row=4, col=1)
-
+        # 设置图表的高度和宽度。
         fig.update_layout(height=1000, width=1000)
         fig.show()
+
+        fig2.add_trace(table_tredes)
+        fig2.update_layout(height=1000, showlegend=False)
+        fig2.show()
 
     def run_optimization(self, optimization_setting: OptimizationSetting, output=True):
         """
@@ -623,7 +707,8 @@ class BacktestingEngine:
 
         return result_values
 
-    def run_ga_optimization(self, optimization_setting: OptimizationSetting, population_size=100, ngen_size=30, output=True) -> list:
+    def run_ga_optimization(self, optimization_setting: OptimizationSetting, population_size=100, ngen_size=30,
+                            output=True) -> list:
         """
         target name: end_balance, max_drawdown, max_ddpercent, max_drawdown_duration, total_net_pnl
         daily_net_pnl, total_commission, daily_commission, total_slippage, daily_slippage, total_turnover, daily_turnover
@@ -696,16 +781,16 @@ class BacktestingEngine:
         toolbox.register("select", tools.selNSGA2)
 
         total_size = len(settings)
-        pop_size = population_size                      # number of individuals in each generation
-        lambda_ = pop_size                              # number of children to produce at each generation
-        mu = int(pop_size * 0.8)                        # number of individuals to select for the next generation
+        pop_size = population_size  # number of individuals in each generation
+        lambda_ = pop_size  # number of children to produce at each generation
+        mu = int(pop_size * 0.8)  # number of individuals to select for the next generation
 
-        cxpb = 0.95         # probability that an offspring is produced by crossover
-        mutpb = 1 - cxpb    # probability that an offspring is produced by mutation
-        ngen = ngen_size    # number of generation
+        cxpb = 0.95  # probability that an offspring is produced by crossover
+        mutpb = 1 - cxpb  # probability that an offspring is produced by mutation
+        ngen = ngen_size  # number of generation
 
         pop = toolbox.population(pop_size)
-        hof = tools.ParetoFront()               # end result of pareto front
+        hof = tools.ParetoFront()  # end result of pareto front
 
         stats = tools.Statistics(lambda ind: ind.fitness.values)
         np.set_printoptions(suppress=True)
@@ -810,7 +895,8 @@ class BacktestingEngine:
 
             # Check whether limit orders can be filled.
             long_cross = (Direction.LONG == order.direction and order.price >= long_cross_price > 0)
-            short_cross = (Direction.SHORT == order.direction and order.price <= short_cross_price and short_cross_price > 0)
+            short_cross = (
+                    Direction.SHORT == order.direction and order.price <= short_cross_price and short_cross_price > 0)
 
             if not long_cross and not short_cross:
                 continue
@@ -868,13 +954,13 @@ class BacktestingEngine:
         for stop_order in list(self.active_stop_orders.values()):
             # Check whether stop order can be triggered.
             long_cross = (
-                stop_order.direction == Direction.LONG
-                and stop_order.price <= long_cross_price
+                    stop_order.direction == Direction.LONG
+                    and stop_order.price <= long_cross_price
             )
 
             short_cross = (
-                stop_order.direction == Direction.SHORT
-                and stop_order.price >= short_cross_price
+                    stop_order.direction == Direction.SHORT
+                    and stop_order.price >= short_cross_price
             )
 
             if not long_cross and not short_cross:
@@ -939,12 +1025,12 @@ class BacktestingEngine:
             self.strategy.on_trade(trade)
 
     def load_bar(
-        self,
-        vt_symbol: str,
-        days: int,
-        interval: Interval,
-        callback: Callable,
-        use_database: bool
+            self,
+            vt_symbol: str,
+            days: int,
+            interval: Interval,
+            callback: Callable,
+            use_database: bool
     ) -> List[BarData]:
         """"""
         self.days = days
@@ -958,16 +1044,16 @@ class BacktestingEngine:
         return []
 
     def send_order(
-        self,
-        strategy: CtaTemplate,
-        direction: Direction,
-        offset: Offset,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool,
-        lock: bool,
-        net: bool,
-        maker: bool = False
+            self,
+            strategy: CtaTemplate,
+            direction: Direction,
+            offset: Offset,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool,
+            lock: bool,
+            net: bool,
+            maker: bool = False
     ) -> List[str]:
         """"""
         price = round_to(price, Decimal(str(self.pricetick)))
@@ -978,11 +1064,11 @@ class BacktestingEngine:
         return [vt_orderid]
 
     def send_stop_order(
-        self,
-        direction: Direction,
-        offset: Offset,
-        price: Decimal,
-        volume: Decimal
+            self,
+            direction: Direction,
+            offset: Offset,
+            price: Decimal,
+            volume: Decimal
     ) -> str:
         """"""
         self.stop_order_count += 1
@@ -1004,12 +1090,12 @@ class BacktestingEngine:
         return stop_order.stop_orderid
 
     def send_limit_order(
-        self,
-        direction: Direction,
-        offset: Offset,
-        price: Decimal,
-        volume: Decimal
-    ) ->str:
+            self,
+            direction: Direction,
+            offset: Offset,
+            price: Decimal,
+            volume: Decimal
+    ) -> str:
         """"""
         self.limit_order_count += 1
 
@@ -1137,23 +1223,33 @@ class DailyResult:
 
     def __init__(self, date: date, close_price: float):
         """"""
+        # 这是报告的日期，表示交易日的日期。
         self.date = date
+        # 这是当日的收盘价格，通常是股票或其他资产的收盘价格。
         self.close_price = close_price
+        # 这是前一交易日的收盘价格，用于计算持仓盈亏等指标。
         self.pre_close = 0
-
+        # 这是一个存储了在该交易日内发生的交易的列表。通常，每个交易都是一个对象，包含有关交易的详细信息，如交易价格、数量、方向等。
         self.trades = []
+        # 是记录了在该交易日内发生的总交易次数。
         self.trade_count = 0
-
+        # 这是当日的交易开始仓位，表示当日交易开始前的持仓数量。
         self.start_pos = 0
+        # 结束仓位
         self.end_pos = 0
-
+        # 这是交易的总成交额，表示在该交易日内的所有交易的成交额之和。
         self.turnover = 0
+        # 这是交易的总手续费，表示在该交易日内的所有交易的手续费之和。
         self.commission = 0
+        # 这是交易的总滑点成本，表示在该交易日内的所有交易的滑点成本之和。
         self.slippage = 0
-
+        # 这是交易盈亏，表示在该交易日内的所有交易的盈亏总和。
         self.trading_pnl = 0
+        # 这是持仓盈亏，表示在该交易日内的所有持仓在期间内的盈亏总和。
         self.holding_pnl = 0
+        # 这是总盈亏，表示在该交易日内的所有交易和持仓的盈亏总和。
         self.total_pnl = 0
+        # 这是净盈亏，表示在该交易日内的所有交易和持仓的盈亏总和，减去了手续费和滑点成本。
         self.net_pnl = 0
 
     def add_trade(self, trade: TradeData):
@@ -1161,13 +1257,13 @@ class DailyResult:
         self.trades.append(trade)
 
     def calculate_pnl(
-        self,
-        pre_close: float,
-        start_pos: float,
-        size: float,
-        rate: float,
-        slippage: float,
-        inverse: bool
+            self,
+            pre_close: float,
+            start_pos: float,
+            size: float,
+            rate: float,
+            slippage: float,
+            inverse: bool
     ):
         """"""
         # If no pre_close provided on the first day,
@@ -1181,9 +1277,9 @@ class DailyResult:
         self.start_pos = start_pos
         self.end_pos = start_pos
 
-        if not inverse:     # For normal contract
+        if not inverse:  # For normal contract
             self.holding_pnl = self.start_pos * (self.close_price - self.pre_close) * size
-        else:               # For crypto currency inverse contract
+        else:  # For crypto currency inverse contract
             self.holding_pnl = self.start_pos * (1 / self.pre_close - 1 / self.close_price) * size
 
         # Trading pnl is the pnl from new trade during the day
@@ -1202,7 +1298,7 @@ class DailyResult:
                 turnover = float(trade.volume) * size * float(trade.price)
                 self.trading_pnl += pos_change * (self.close_price - float(trade.price)) * size
                 self.slippage += float(trade.volume) * size * slippage
-            # For crypto currency inverse contract
+            # For cryptocurrency inverse contract
             else:
                 turnover = float(trade.volume) * size / float(trade.price)
                 self.trading_pnl += pos_change * (1 / float(trade.price) - 1 / self.close_price) * size
@@ -1217,20 +1313,20 @@ class DailyResult:
 
 
 def optimize(
-    target_name: str,
-    strategy_class: CtaTemplate,
-    setting: dict,
-    vt_symbol: str,
-    interval: Interval,
-    start: datetime,
-    rate: float,
-    slippage: float,
-    size: float,
-    pricetick: float,
-    capital: int,
-    end: datetime,
-    mode: BacktestingMode,
-    inverse: bool
+        target_name: str,
+        strategy_class: CtaTemplate,
+        setting: dict,
+        vt_symbol: str,
+        interval: Interval,
+        start: datetime,
+        rate: float,
+        slippage: float,
+        size: float,
+        pricetick: float,
+        capital: int,
+        end: datetime,
+        mode: BacktestingMode,
+        inverse: bool
 ):
     """
     Function for running in multiprocessing.pool
@@ -1290,13 +1386,20 @@ def ga_optimize(parameter_values: list):
     return _ga_optimize(tuple(parameter_values))
 
 
+"""
+由于装饰器 @lru_cache 的存在，如果多次调用 load_bar_data 函数使用相同的参数，那么第一次调用会执行数据库查询，
+并将结果缓存起来。后续对相同参数的调用将直接从缓存中获取结果，而不会再次执行数据库查询，从而提高了查询效率。
+这对于需要频繁查询相同数据的场景非常有用。
+"""
+
+
 @lru_cache(maxsize=999)
 def load_bar_data(
-    symbol: str,
-    exchange: Exchange,
-    interval: Interval,
-    start: datetime,
-    end: datetime
+        symbol: str,
+        exchange: Exchange,
+        interval: Interval,
+        start: datetime,
+        end: datetime
 ):
     """"""
     return database.load_bar_data(
@@ -1306,10 +1409,10 @@ def load_bar_data(
 
 @lru_cache(maxsize=999)
 def load_tick_data(
-    symbol: str,
-    exchange: Exchange,
-    start: datetime,
-    end: datetime
+        symbol: str,
+        exchange: Exchange,
+        start: datetime,
+        end: datetime
 ):
     """"""
     return database.load_tick_data(

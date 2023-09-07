@@ -99,7 +99,11 @@ class BaseGateway(ABC):
         Tick event push.
         Tick event of a specific vt_symbol is also pushed.
         """
+        # self.on_event(EVENT_TICK, tick)：这一行代码将一个名为 EVENT_TICK 的事件与接收到的 tick 数据关联起来，
+        # 并通过事件引擎将该事件推送出去。这个事件通常用于通知系统中的其他部分，新的行情数据已经到达。
         self.on_event(EVENT_TICK, tick)
+        # 行代码将特定交易品种的最新行情数据与一个特定的事件关联起来，并通过事件引擎将该事件推送出去。
+        # 这个事件的名称是 EVENT_TICK 加上特定交易品种的 vt_symbol，通常用于通知系统中对特定品种感兴趣的部分，新的行情数据已经到达。
         self.on_event(EVENT_TICK + tick.vt_symbol, tick)
 
     def on_trade(self, trade: TradeData) -> None:
@@ -160,7 +164,7 @@ class BaseGateway(ABC):
 
     def on_premium_rate(self, premium_rate: PremiumRateData):
         self.on_event(EVENT_PREMIUM_RATE, premium_rate)
-        self.on_event(EVENT_PREMIUM_RATE+premium_rate.vt_symbol, premium_rate)
+        self.on_event(EVENT_PREMIUM_RATE + premium_rate.vt_symbol, premium_rate)
 
     def write_log(self, msg: str) -> None:
         """
@@ -309,29 +313,38 @@ class LocalOrderManager:
     def __init__(self, gateway: BaseGateway, order_prefix: str = "") -> None:
         """"""
         self.gateway: BaseGateway = gateway
-
+        # 参数是一个用于生成本地订单标识的前缀，通常是一个字符串，以便将本地订单标识与系统订单标识区分开来。
         # For generating local orderid
         self.order_prefix: str = order_prefix
+        # 用于生成本地订单标识的计数器
         self.order_count: int = 0
-        self.orders: Dict[str, OrderData] = {}        # local_orderid: order
+        # 存储订单信息的字典
+        self.orders: Dict[str, OrderData] = {}  # local_orderid: order
 
         # Map between local and system orderid
+        # 本地订单标识与系统订单标识之间的映射
         self.local_sys_orderid_map: Dict[str, str] = {}
         self.sys_local_orderid_map: Dict[str, str] = {}
 
         # Push order data buf
+        # 存储推送数据的字典v
         self.push_data_buf: Dict[str, Dict] = {}  # sys_orderid: data
 
         # Callback for processing push order data
+        # 用于处理推送数据的回调函数
         self.push_data_callback: Callable = None
 
         # Cancel request buf
-        self.cancel_request_buf: Dict[str, CancelRequest] = {}    # local_orderid: req
+        # 存储取消订单请求的字典
+        self.cancel_request_buf: Dict[str, CancelRequest] = {}  # local_orderid: req
 
         # Hook cancel order function
+        # 修改了 gateway 对象的 cancel_order 方法，将其替换为本地的 cancel_order 方法，以便进行订单的本地管理。
         self._cancel_order: Callable = gateway.cancel_order
         gateway.cancel_order = self.cancel_order
-
+    """
+    生成一个新的本地订单标识，将其返回。这个标识是通过在 order_prefix 前添加一个递增的计数器生成的。
+    """
     def new_local_orderid(self) -> str:
         """
         Generate a new local orderid.
@@ -339,7 +352,10 @@ class LocalOrderManager:
         self.order_count += 1
         local_orderid: str = self.order_prefix + str(self.order_count).rjust(8, "0")
         return local_orderid
-
+    """
+    根据系统订单标识获取对应的本地订单标识，如果没有找到，则生成一个新的本地订单标识。
+    这个方法用于将系统订单标识与本地订单标识进行映射，以便在本地管理订单时使用。
+    """
     def get_local_orderid(self, sys_orderid: str) -> str:
         """
         Get local orderid with sys orderid.
@@ -352,12 +368,22 @@ class LocalOrderManager:
 
         return local_orderid
 
+    """
+    根据本地订单标识获取对应的系统订单标识。
+    这个方法用于将本地订单标识转换为系统订单标识，以便向交易所发送订单取消请求等。
+    """
+
     def get_sys_orderid(self, local_orderid: str) -> str:
         """
         Get sys orderid with local orderid.
         """
         sys_orderid: str = self.local_sys_orderid_map.get(local_orderid, "")
         return sys_orderid
+
+    """
+    更新订单标识映射关系，将系统订单标识与本地订单标识互相映射。
+    同时检查是否有等待中的取消订单请求或推送数据，如果有则执行相应的操作
+    """
 
     def update_orderid_map(self, local_orderid: str, sys_orderid: str) -> None:
         """
@@ -369,6 +395,10 @@ class LocalOrderManager:
         self.check_cancel_request(local_orderid)
         self.check_push_data(sys_orderid)
 
+    """
+    检查是否有等待中的推送数据，如果有则执行相应的回调函数。
+    """
+
     def check_push_data(self, sys_orderid: str) -> None:
         """
         Check if any order push data waiting.
@@ -379,6 +409,10 @@ class LocalOrderManager:
         data: dict = self.push_data_buf.pop(sys_orderid)
         if self.push_data_callback:
             self.push_data_callback(data)
+
+    """
+    将推送数据添加到推送数据缓冲区中，等待后续处理。
+    """
 
     def add_push_data(self, sys_orderid: str, data: dict) -> None:
         """
@@ -394,10 +428,18 @@ class LocalOrderManager:
         else:
             return self.get_order_with_local_orderid(local_orderid)
 
+    """
+    根据系统订单标识或本地订单标识获取相应的订单数据对象。
+    """
+
     def get_order_with_local_orderid(self, local_orderid: str) -> OrderData:
         """"""
         order: OrderData = self.orders[local_orderid]
         return copy(order)
+
+    """
+    用于处理订单事件，将订单信息存储在 orders 字典中，并通过 gateway 对象的 on_order 方法将订单事件推送出去。
+    """
 
     def on_order(self, order: OrderData) -> None:
         """
@@ -405,6 +447,12 @@ class LocalOrderManager:
         """
         self.orders[order.orderid] = copy(order)
         self.gateway.on_order(order)
+
+    """
+    用于发送取消订单请求，但首先会根据本地订单标识查找相应的系统订单标识。
+    如果找到系统订单标识，则发送取消订单请求；
+    否则，将取消请求存储在 cancel_request_buf 中等待映射后再发送。
+    """
 
     def cancel_order(self, req: CancelRequest) -> None:
         """"""
@@ -415,6 +463,7 @@ class LocalOrderManager:
 
         self._cancel_order(req)
 
+    # 检查是否有等待中的取消订单请求，如果有，则发送这些请求。
     def check_cancel_request(self, local_orderid: str) -> None:
         """"""
         if local_orderid not in self.cancel_request_buf:

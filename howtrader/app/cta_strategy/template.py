@@ -9,37 +9,51 @@ from howtrader.trader.utility import virtual
 from .base import StopOrder, EngineType
 from decimal import Decimal
 
+
 class CtaTemplate(ABC):
-    """"""
+    """
+    这个类是一个名为 CtaTemplate 的策略模板，用于开发和实现CTA（Commodity Trading Advisor）策略。
+    CTA策略通常应用于期货市场，它们根据市场数据生成交易信号，并执行买入和卖出操作。
+    """
 
     author: str = ""
+    # 这个属性通常用于存储策略类的参数名列表。策略类的参数是可以在实例化策略对象时传递的配置项，允许用户在不修改策略代码的情况下调整策略的行为。
     parameters: list = []
+    # 这个属性通常用于存储策略类的状态变量名列表。状态变量是在策略运行过程中记录策略内部状态的变量，用于监视和调试策略的行为。
     variables: list = []
 
     def __init__(
-        self,
-        cta_engine: Any,
-        strategy_name: str,
-        vt_symbol: str,
-        setting: dict,
+            self,
+            cta_engine: Any,
+            strategy_name: str,
+            vt_symbol: str,
+            setting: dict,
     ) -> None:
         """"""
         self.cta_engine: "CtaEngine" = cta_engine
         self.strategy_name: str = strategy_name
         self.vt_symbol: str = vt_symbol
-
+        # 表示策略是否已初始化，默认为 False。
         self.inited: bool = False
+        # 表示策略是否正在交易，默认为 False。
         self.trading: bool = False
+        # 表示策略当前的仓位，默认为0。
         self.pos: Decimal = Decimal("0")
 
         # Copy a new variables list here to avoid duplicate insert when multiple
         # strategy instances are created with the same strategy class.
         self.variables = copy(self.variables)
+
+        # 包含了策略中的一些变量，如 inited、trading、pos
         self.variables.insert(0, "inited")
         self.variables.insert(1, "trading")
         self.variables.insert(2, "pos")
 
         self.update_setting(setting)
+
+    """
+    用于更新策略的设置参数。将设置参数中的值赋给策略对象的属性，以便在策略逻辑中使用。
+    """
 
     def update_setting(self, setting: dict) -> None:
         """
@@ -49,6 +63,13 @@ class CtaTemplate(ABC):
             if name in setting:
                 setattr(self, name, setting[name])
 
+    """
+    用于获取策略类的默认参数字典。
+    这个类方法的作用是使得你可以在不创建策略实例的情况下获取策略类的默认参数，从而可以在需要的时候使用这些默认参数来初始化策略实例。
+    例如，你可以通过 StrategyClass.get_class_parameters() 来获取某个策略类的默认参数。
+    """
+
+    # 这是一个装饰器，用于声明下面的函数是一个类方法，而不是实例方法。类方法是与类相关联的方法，而不是与类的实例相关联的方法。它可以通过类名调用，而无需创建类的实例。
     @classmethod
     def get_class_parameters(cls) -> dict:
         """
@@ -58,6 +79,10 @@ class CtaTemplate(ABC):
         for name in cls.parameters:
             class_parameters[name] = getattr(cls, name)
         return class_parameters
+
+    """
+    用于获取策略实例的当前参数字典。
+    """
 
     def get_parameters(self) -> dict:
         """
@@ -133,6 +158,13 @@ class CtaTemplate(ABC):
         """
         pass
 
+    """
+    @virtual
+    这是一个装饰器，用于标记方法为虚拟方法。
+    虚拟方法是一个在基类中定义但在派生类中需要重新实现的方法。
+    在这里，on_order 被标记为虚拟方法，表示它必须在派生类中重新实现，以根据具体策略的需求处理新的交易数据。
+    """
+
     @virtual
     def on_order(self, order: OrderData) -> None:
         """
@@ -148,13 +180,13 @@ class CtaTemplate(ABC):
         pass
 
     def buy(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send buy order to open a long position.
@@ -171,13 +203,13 @@ class CtaTemplate(ABC):
         )
 
     def sell(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send sell order to close a long position.
@@ -193,14 +225,18 @@ class CtaTemplate(ABC):
             maker
         )
 
+    """
+    方法名为 short，它是策略类中的一个操作方法，用于发送一个开空仓的订单，以建立一个空头（卖出）仓位。
+    """
+
     def short(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send short order to open as short position.
@@ -216,14 +252,18 @@ class CtaTemplate(ABC):
             maker
         )
 
+    """
+    策略类中的一个操作方法，用于发送一个平仓订单，以平掉（即关闭）一个已有的卖空仓位。
+    """
+
     def cover(
-        self,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send cover order to close a short position.
@@ -240,15 +280,16 @@ class CtaTemplate(ABC):
         )
 
     def send_order(
-        self,
-        direction: Direction,
-        offset: Offset,
-        price: Decimal,
-        volume: Decimal,
-        stop: bool = False,
-        lock: bool = False,
-        net: bool = False,
-        maker: bool = False
+            self,
+            direction: Direction,
+            # 这是方法的第三个参数，用于指定订单的开平方向。参数名为 offset，类型为 Offset，通常用于表示订单是开仓还是平仓
+            offset: Offset,
+            price: Decimal,
+            volume: Decimal,
+            stop: bool = False,
+            lock: bool = False,
+            net: bool = False,
+            maker: bool = False
     ) -> list:
         """
         Send a new order.
@@ -304,11 +345,11 @@ class CtaTemplate(ABC):
         return self.cta_engine.get_position(vt_positionid)
 
     def load_bar(
-        self,
-        days: int,
-        interval: Interval = Interval.MINUTE,
-        callback: Callable = None,
-        use_database: bool = False
+            self,
+            days: int,
+            interval: Interval = Interval.MINUTE,
+            callback: Callable = None,
+            use_database: bool = False
     ) -> None:
         """
         Load historical bar data for initializing strategy.
@@ -401,7 +442,7 @@ class TargetPosTemplate(CtaTemplate):
 
     last_tick: TickData = None
     last_bar: BarData = None
-    target_pos:Decimal = Decimal("0")
+    target_pos: Decimal = Decimal("0")
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting) -> None:
         """"""
